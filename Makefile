@@ -8,7 +8,7 @@ CFLAGS   = -std=c99 -O0 -pthread
 LFLAGS   = -ldl -lm -lpthread
 
 # directories
-TARGET   = app
+TARGET   = 3230shell_3035827110
 SRC_DIR   = src
 BIN_DIR   = bin
 OBJ_DIR   = $(BIN_DIR)/.obj
