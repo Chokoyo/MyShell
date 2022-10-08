@@ -8,15 +8,33 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 
+
 #include "execute.h"
 #include "sighandler.h"
 #include "parser.h"
 
+// #define SIGUSR1_RECEIVED 0
 
+int sigusr1_received = 0;
+
+void sigusr1_handler(int sig) {
+    if (sig == SIGUSR1) {
+        sigusr1_received = 1;
+    }
+}
 
 void execute(char** args) {
+    // check if the instruction is empty
+    if (args[0] == NULL) {
+        return;
+    }
+
+    sigusr1_received = 0;
+    signal(SIGUSR1, sigusr1_handler);
+    sighandler_init();
+
     exit_on_command(args);
-    int timex_mode = is_timex_command(args); // 0 if not timex, 1 if timex
+    bool timex_mode = is_timex_command(args); // 0 if not timex, 1 if timex
     
 
     execute_single(args, timex_mode);
@@ -24,13 +42,15 @@ void execute(char** args) {
 }
 
 void execute_single(char** args, int timex_mode) {
+
+    
     pid_t pid = fork();
     if (pid == 0) {
         // child process
         // printf("child process\n");
 
-        // signal handlers init
-        sighandler_init();
+        // pause until SIGUSR1 signal from parent
+        while (!sigusr1_received);
         execvp(args[0], args);
 
         // error handling
@@ -38,9 +58,13 @@ void execute_single(char** args, int timex_mode) {
         exit(-1);
     } else {
         // parent process
+
+        // send SIGUSR1 signal to child
+        kill(pid, SIGUSR1);
+        // while (!SIGUSR1_RECEIVED);
         // if in timex mode, use wait4() to get rusage
         if (timex_mode == 0) { // not timex mode
-            wait(NULL);
+            waitpid(pid, NULL, 0);
         } else {               // timex mode
             wait_print_rusage(pid, args);
         }
@@ -50,12 +74,15 @@ void execute_single(char** args, int timex_mode) {
 
 void exit_on_command(char** args) {
     if (strcmp(args[0], "exit") == 0 && args[1] == NULL) {
+        print_message(args, "Terminated");
         exit(0);
+    } else if (strcmp(args[0], "exit") == 0 && args[1] != NULL) {
+        print_message(args, "\"exit\" with other arguments!!!");
     }
 }
 
-int is_timex_command(char** args) {
-    if (strcmp(args[0], "timeX") == 0) {
+bool is_timex_command(char** args) {
+    if (strcmp(args[0], "timeX") == 0 && args[1] != NULL) {
         
         //remove the first element
         // printf("timex command\n");
@@ -65,6 +92,9 @@ int is_timex_command(char** args) {
             args[i] = args[i+1];
         }
         return 1;
+    } else if (strcmp(args[0], "timeX") == 0 && args[1] == NULL) {
+        print_message(args, "\"timeX\" cannot be a standalone command");
+        return 0;
     }
     return 0;
 }
@@ -73,6 +103,7 @@ void wait_print_rusage(pid_t pid, char** args) {
     int status;
     struct rusage usage;
     wait4(pid, &status, 0, &usage);
+    printf("\n");
     printf("(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", pid, 
                                                                         args[0], 
                                                                         usage.ru_utime.tv_sec, 
@@ -84,10 +115,20 @@ void wait_print_rusage(pid_t pid, char** args) {
 }
 
 void print_error_message(char** args) {
-    // perror message from args[0]
-    char* error_message = malloc(1024 * sizeof(char));
-    strcpy(error_message, "3230shell: '");
-    strcat(error_message, args[0]);
-    strcat(error_message, "'");    
-    perror(error_message);
+    if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "timeX") == 0) { // ommit built-in commands
+        return;
+    }
+    char* err_msg = malloc(1024 * sizeof(char));
+    // strcpy(err_msg, "3230shell: '");
+    // strcat(err_msg, args[0]);
+    // strcat(err_msg, "'");
+    sprintf(err_msg, "3230shell: '%s'", args[0]);
+    perror(err_msg);
+    // if (err_msg != NULL) {
+    //     free(err_msg);
+    // }
+}
+
+void print_message(char** args, char* message) {
+    printf("3230shell: %s\n", message);
 }
