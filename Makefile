@@ -42,4 +42,7 @@ clean:
 remove: clean
 	rm -f $(BIN_DIR)/$(TARGET)
 
-.PHONY: build run debug clean remove
+all:
+	make
+
+.PHONY: build run debug clean remove all
