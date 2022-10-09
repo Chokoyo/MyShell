@@ -12,6 +12,6 @@ void sigint_main_handler(int sig);
 void sigquit_handler(int sig);
 // void sigusr1_handler(int sig);
 void sigchld_handler(int sig);
-void sig_init(int sig);
+void sigint_main_init(int sig);
 
 #endif

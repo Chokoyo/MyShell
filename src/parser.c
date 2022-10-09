@@ -1,5 +1,6 @@
 #define MAX_CHAR 1024
 #define MAX_STRING 30
+#define MAX_CMD 5
 
 #include <string.h>
 #include <stdlib.h>
@@ -34,6 +35,47 @@ char **parse(char *input)
     //     printf("%s\n", instr[j]);
     // }
     return instr;
+}
+
+// char ***parse_command(char *instr, char delimiter)
+// {
+//     char ***all_cmd = malloc(MAX_CMD * sizeof(char**));
+//     int len = strlen(instr);
+//     int index = 0;
+    
+//     char **curr_cmd = malloc(MAX_STRING * sizeof(char*));
+//     for (int i = 0; i < len; i++)
+//     {
+//         curr_cmd[i] = malloc(MAX_CHAR * sizeof(char));
+
+//         if (strlen(instr[i]) == 1 && instr[0] == delimiter)
+//         {
+            
+//         }
+//     }
+// }
+
+
+// parse the instruction into multiple commands if there is a pipe
+char ***parse_command(char **instr, char delimiter) {
+    char ***all_cmd = malloc(MAX_CMD * sizeof(char**));
+    int len = get_args_length(instr);
+    int index = 0;
+    int cmd_index = 0;
+    char **curr_cmd = malloc(MAX_STRING * sizeof(char*));
+    for (int i = 0; i < len; i++) {
+        if (strcmp(instr[i], "|") == 0) {
+            curr_cmd[cmd_index] = NULL;
+            all_cmd[index++] = curr_cmd;
+            curr_cmd = malloc(MAX_STRING * sizeof(char*));
+            cmd_index = 0;
+        } else {
+            curr_cmd[cmd_index++] = instr[i];
+        }
+    }
+    curr_cmd[cmd_index] = NULL;
+    all_cmd[index] = curr_cmd;
+    return all_cmd;
 }
 
 int get_args_length(char** args) {
