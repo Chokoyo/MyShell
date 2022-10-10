@@ -64,26 +64,25 @@ void execute(char** args) {
     }
     
     // execute the commands
-    int fd[2];
-    int fd_last_out = 0;
+    int fds[num_cmd - 1][2];
     char* timex_info = malloc(MAX_CHAR * sizeof(char));
     for (int i = 0; i < num_cmd; i++) {
-        pipe(fd);
+        pipe(fds[i]);
         pid_t pid = fork();
         if (pid == 0) {
             // child process
             while (!sigusr1_received);
             // if not the first command, redirect the input
             if (i != 0) {
-                dup2(fd_last_out, STDIN_FILENO);
+                dup2(fds[i-1][0], STDIN_FILENO);
             }
             // if not the last command, redirect the output
             if (i != num_cmd - 1) {
-                dup2(fd[1], STDOUT_FILENO);
+                dup2(fds[i][1], STDOUT_FILENO);
             }
             // close all pipes
-            close(fd[0]);
-            close(fd[1]);
+            close(fds[i-1][0]);
+            close(fds[i][1]);
 
             // execute the command
             execvp(all_cmd[i][0], all_cmd[i]);
@@ -96,16 +95,15 @@ void execute(char** args) {
             kill(pid, SIGUSR1);
             // wait for the child process to finish
             if (timex_mode == 0) { 
-                // not timex mode
+                // wait for all child processes to finish
                 waitpid(pid, NULL, 0);
             } else {               
                 // timex mode
                 wait_store_rusage(pid, all_cmd[i], timex_info);
             }
             // close the unused file descriptors
-            close(fd[1]);
-            // save the input for the next command
-            fd_last_out = fd[0];
+            close(fds[i-1][0]);
+            close(fds[i][1]);
 
             // if last command, print the timex info
             if (i == num_cmd - 1 && timex_mode == 1) {
@@ -154,18 +152,33 @@ void exit_on_command(char** args) {
 }
 
 int is_background_command(char** args, int timex_mode) {
-    int i = 0;
+    int i = get_args_length(args) - 1;
     int j = 0;
+    while (args[i][j] != '\0') j++;
+    j = j - 1;
+    int m = 0;
+    int n = 0;
+    while (args[m] != NULL) {
+        while (args[m][n] != '\0') {
+            if (args[m][n] == '&' && (m != i || n != j)) {
+                print_message(args, "'&' should not appear in the middle of the command line");
+                return -1;
+            }
+            n++;
+        }
+        m++;
+    }
 
     // find the last char args[i - 1][j - 1]
-    while (args[i] != NULL) i++;
-    while (args[i - 1][j] != '\0') j++;
+    // while (args[i] != NULL) i++;
+    // while (args[i - 1][j] != '\0') j++;
     
-    if (args[i - 1][j - 1] == '&') {
-        args[i - 1][j - 1] = '\0';
-        if (args[i - 1][0] == '\0') {
-            args[i - 1] = NULL;
+    if (args[i][j] == '&') {
+        args[i][j] = '\0';
+        if (args[i][0] == '\0') {
+            args[i] = NULL;
         }
+        // check if have other "&" in the command
         if (timex_mode == 1) {
             print_message(args, "\"timeX\" cannot be run in background mode");
             return -1;
