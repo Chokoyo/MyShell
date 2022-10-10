@@ -33,8 +33,14 @@ void execute(char** args) {
     signal(SIGUSR1, sigusr1_handler);
     sighandler_init();
 
+    // handle all built-in commands
     exit_on_command(args);
-    bool timex_mode = is_timex_command(args); // 0 if not timex, 1 if timex
+    int timex_mode = is_timex_command(args); // 0 if not timex, 1 if timex
+    int background_mode = is_background_command(args, timex_mode); // 0 if not background, 1 if background
+    if (background_mode == -1) {
+        // error condition
+        return;
+    }
 
     // parse the instruction to an array of commands if involve pipe
     char ***all_cmd = parse_command(args, '|');
@@ -56,7 +62,7 @@ void execute(char** args) {
     if (check_empty_command(all_cmd, num_cmd) == 1) {
         return;
     }
-
+    
     // execute the commands
     int fd[2];
     int fd_last_out = 0;
@@ -81,6 +87,10 @@ void execute(char** args) {
 
             // execute the command
             execvp(all_cmd[i][0], all_cmd[i]);
+
+            // error handling
+            print_error_message(args);
+            exit(-1);
         } else {
             // parent process
             kill(pid, SIGUSR1);
@@ -103,12 +113,7 @@ void execute(char** args) {
             }
         }
     }
-
-    // execute_single(args, timex_mode);
-
 }
-
-
 
 void execute_single(char** args, int timex_mode) {
     pid_t pid = fork();
@@ -148,13 +153,33 @@ void exit_on_command(char** args) {
     }
 }
 
-bool is_timex_command(char** args) {
+int is_background_command(char** args, int timex_mode) {
+    int i = 0;
+    int j = 0;
+
+    // find the last char args[i - 1][j - 1]
+    while (args[i] != NULL) i++;
+    while (args[i - 1][j] != '\0') j++;
+    
+    if (args[i - 1][j - 1] == '&') {
+        args[i - 1][j - 1] = '\0';
+        if (args[i - 1][0] == '\0') {
+            args[i - 1] = NULL;
+        }
+        if (timex_mode == 1) {
+            print_message(args, "\"timeX\" cannot be run in background mode");
+            return -1;
+        }
+
+        // print_message(args, "Background Mode Activated");
+        return 1;
+    }
+    return 0;
+}
+
+int is_timex_command(char** args) {
     if (strcmp(args[0], "timeX") == 0 && args[1] != NULL) {
-        
-        //remove the first element
-        // printf("timex command\n");
         int n = get_args_length(args);
-        // printf("n = %d\n", n);
         for (int i = 0; i < n; i++) {
             args[i] = args[i+1];
         }
@@ -207,6 +232,7 @@ void wait_store_rusage(pid_t pid, char** args, char* timex_info) {
                                                                         usage.ru_stime.tv_sec, 
                                                                         usage.ru_stime.tv_usec/1000);
     strcat(timex_info, string);
+    free(string);
 }
 
 void print_error_message(char** args) {
