@@ -194,7 +194,7 @@ void execute(char** args) {
                     // printf("pid: %d\n", pid);
                     // printf("cmd: %s\n", job->command);
                     insertNode(&background_list, job);
-                }
+                }  
             }
             // close the unused file descriptors
             // close(fds[i][0]);
@@ -220,6 +220,7 @@ void execute(char** args) {
     }
 
     if (strcmp(background_info, "") != 0) {
+        wait(NULL);
         printf("test msg: bg info at end\n");
         printf("%s", background_info);
         strcpy(background_info, "");
