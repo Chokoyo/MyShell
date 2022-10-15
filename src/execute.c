@@ -9,7 +9,7 @@
 #include <sys/resource.h>
 #include <setjmp.h>
 
-
+#include "sllist.h"
 #include "execute.h"
 #include "sighandler.h"
 #include "parser.h"
@@ -18,8 +18,18 @@
 
 int sigusr1_received = 0;
 char *background_info = NULL;
+extern SLList background_list;
 extern bool print_background_info;
 extern bool print_prompt;
+// extern char ***all_cmd;
+
+
+struct back_instr {
+    pid_t pid;
+    char *cmd_name;
+    bool is_background;
+    struct back_instr *next;
+};
 
 void sigusr1_handler(int sig) {
     if (sig == SIGUSR1) {
@@ -32,19 +42,24 @@ void sigchld_handler(int sig) {
     if (sig == SIGCHLD) {
         int status;
         pid_t pid = waitpid(-1, &status, WNOHANG);
-        if (pid > 0) {
+        int index = findNode(&background_list, (int) pid);
+        if (pid > 0 &&  index!= -1) {
+            char *cmd_name = (getNode(&background_list, index))->command;
             if (WIFEXITED(status)) {
                 char *info = malloc(MAX_CHAR);
-                sprintf(info, "[%d] Done\n", pid);
+                sprintf(info, "[%d] %s Done\n", pid, get_cmd_name(cmd_name));
+                // sprintf(info, "[%d] Done\n", pid);
                 strcat(background_info, info);
             } else if (WIFSIGNALED(status)) {
                 char *info = malloc(MAX_CHAR);
-                sprintf(info, "[%d] Terminated\n", pid);
+                sprintf(info, "[%d] %s Terminated\n", pid, get_cmd_name(cmd_name));
                 strcat(background_info, info);
             }
         }
+        removeNode(&background_list, pid);
         print_background_info = false;
         print_prompt = false;
+        
     }
     signal(SIGCHLD, sigchld_handler);
 }
@@ -79,7 +94,7 @@ void execute(char** args) {
     }
 
     // parse the instruction to an array of commands if involve pipe
-    char ***all_cmd = parse_command(args, '|');
+    char*** all_cmd = parse_command(args, '|');
     int num_cmd = 0;
     while (all_cmd[num_cmd] != NULL) {
         num_cmd++;
@@ -145,6 +160,7 @@ void execute(char** args) {
             print_error_message(all_cmd[i]);
             exit(-1);
         } else {
+
             // parent process
             if (i==0) kill(pid, SIGUSR1);
 
@@ -169,10 +185,22 @@ void execute(char** args) {
                     // timex mode
                     wait_store_rusage(pid, all_cmd[i], timex_info);
                 }
+            } else {
+                for (int i = 0; i < num_cmd; i++) {
+                    Job *job = malloc(sizeof(Job)); //todo: support pipe
+                    job->pid = pid;
+                    job->command = malloc(MAX_CHAR);
+                    strcpy(job->command, all_cmd[i][0]);
+                    // printf("pid: %d\n", pid);
+                    // printf("cmd: %s\n", job->command);
+                    insertNode(&background_list, job);
+                }
             }
             // close the unused file descriptors
             // close(fds[i][0]);
             // close(fds[i][1]);
+
+            
 
             // if last command, print the timex info
             if (i == num_cmd - 1 && timex_mode == 1) {
@@ -332,7 +360,7 @@ void wait_store_rusage(pid_t pid, char** args, char* timex_info) {
     memset(&usage, 0, sizeof(usage));
     wait4(pid, &status, 0, &usage);
     sprintf(string, "(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", pid, 
-                                                                        args[0], 
+                                                                        get_cmd_name(args[0]), 
                                                                         usage.ru_utime.tv_sec, 
                                                                         usage.ru_utime.tv_usec/1000, 
                                                                         usage.ru_stime.tv_sec, 
@@ -346,7 +374,7 @@ void print_error_message(char** args) {
         return;
     }
     char* err_msg = malloc(1024 * sizeof(char));
-    sprintf(err_msg, "3230shell: '%s'", args[0]);
+    sprintf(err_msg, "3230shell: '%s'", get_cmd_name(args[0]));
     perror(err_msg);
 }
 

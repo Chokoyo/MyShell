@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <setjmp.h>
 
+#include "sllist.h"
 #include "parser.h"
 #include "execute.h"
 #include "sighandler.h"
@@ -23,10 +24,13 @@
 jmp_buf jmpbuf;
 bool print_background_info;
 bool print_prompt;
+SLList background_list;
+// char ***all_cmd;
 
 int main(int argc, char *argv[]) {
     int i = 0;
     print_prompt = true;
+    createSLList(&background_list, (int) sizeof(Job));
     while(1) {
         
         // print num of iteration

@@ -86,6 +86,26 @@ int get_args_length(char** args) {
     return i;
 }
 
+char* get_cmd_name(char* args) {
+    char* cmd_name = malloc(MAX_CHAR * sizeof(char));
+    int len = 0;
+    // find position of last slash
+    while (args[len] != '\0') {
+        len++;
+    }
+    int i = len - 1;
+    while (args[i] != '/') {
+        if (i == 0) {
+            return args;
+        }
+        i--;
+    }
+    for (int j = i + 1; j < len; j++) {
+        cmd_name[j - i - 1] = args[j];
+    }
+    return cmd_name;
+}
+
 char* read_input() {
     char *input = malloc(MAX_CHAR * sizeof(char));
     memset(input, 0, MAX_CHAR);
