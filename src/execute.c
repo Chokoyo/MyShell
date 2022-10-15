@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
+#include <setjmp.h>
 
 
 #include "execute.h"
@@ -17,6 +18,8 @@
 
 int sigusr1_received = 0;
 char *background_info = NULL;
+extern bool print_background_info;
+extern bool print_prompt;
 
 void sigusr1_handler(int sig) {
     if (sig == SIGUSR1) {
@@ -40,6 +43,8 @@ void sigchld_handler(int sig) {
                 strcat(background_info, info);
             }
         }
+        print_background_info = false;
+        print_prompt = false;
     }
     signal(SIGCHLD, sigchld_handler);
 }
@@ -52,10 +57,11 @@ void execute(char** args) {
     }
 
     if (args[0] == NULL) {
-        if (strcmp(background_info, "") != 0) {
+        if (strcmp(background_info, "") != 0 && print_background_info) {
+            // printf("test msg: bg info at front\n");
             printf("%s", background_info);
             strcpy(background_info, "");
-        }
+        }  
         return;
     }
 
@@ -80,13 +86,14 @@ void execute(char** args) {
     }
     
     // print all commands
-    for (int i = 0; i < num_cmd; i++) {
-        printf("command %d: ", i);
-        for (int j = 0; all_cmd[i][j] != NULL; j++) {
-            printf("%s ", all_cmd[i][j]);
-        }
-        printf("\n");
-    }
+    // printf("num_cmd: %d\n", num_cmd);
+    // for (int i = 0; i < num_cmd; i++) {
+    //     printf("command %d: ", i);
+    //     for (int j = 0; all_cmd[i][j] != NULL; j++) {
+    //         printf("%s ", all_cmd[i][j]);
+    //     }
+    //     printf("\n");
+    // }
 
     // check whether has empty command
     if (check_empty_command(all_cmd, num_cmd) == 1) {
@@ -97,6 +104,7 @@ void execute(char** args) {
     if (background_mode == 1) {
         signal(SIGCHLD, sigchld_handler);
     }
+    // signal(SIGCHLD, sigchld_handler);
 
     int fds[num_cmd - 1][2];
     char* timex_info = malloc(MAX_CHAR * sizeof(char));
@@ -124,7 +132,7 @@ void execute(char** args) {
             if (i != num_cmd - 1) {
                 dup2(fds[i][1], STDOUT_FILENO);
             }
-            
+
             close(fds[i-1][0]);
             close(fds[i-1][1]);
             close(fds[i][1]);
@@ -179,10 +187,16 @@ void execute(char** args) {
         close(fds[i][1]);
     }
 
+    if (background_mode == 0) {
+        print_prompt = true;
+    }
+
     if (strcmp(background_info, "") != 0) {
+        printf("test msg: bg info at end\n");
         printf("%s", background_info);
         strcpy(background_info, "");
     }
+
 }
 
 void execute_single(char** args, int timex_mode) {
@@ -215,6 +229,9 @@ void execute_single(char** args, int timex_mode) {
 }
 
 void exit_on_command(char** args) {
+    if (args[0] == NULL) {
+        return;
+    }
     if (strcmp(args[0], "exit") == 0 && args[1] == NULL) {
         print_message(args, "Terminated");
         exit(0);

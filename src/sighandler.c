@@ -3,9 +3,11 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <setjmp.h>
 
 #include "sighandler.h"
 
+extern jmp_buf jmpbuf;
 
 void sighandler_init() {
     signal(SIGHUP, sighup_handler);
@@ -49,6 +51,7 @@ void sigquit_handler(int sig) {
 
 void sigint_main_handler(int sig) {
     printf("\n");
+    longjmp(jmpbuf, 1);
     signal(SIGINT, sigint_handler);
     fflush(stdin);
 }

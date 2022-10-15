@@ -9,6 +9,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <setjmp.h>
 
 #include "parser.h"
 #include "execute.h"
@@ -19,20 +20,36 @@
 #define MAX_STRING 30
 #define CONTINUE 0
 
+jmp_buf jmpbuf;
+bool print_background_info;
+bool print_prompt;
 
 int main(int argc, char *argv[]) {
     int i = 0;
+    print_prompt = true;
     while(1) {
+        
         // print num of iteration
         // printf("this is the %d\n> ", i);
-        // i++;
 
+        setjmp(jmpbuf);
         sigint_main_init(SIGINT);
         // print prompt
-        printf("$$ 3230shell ## ");
-
+        if (print_prompt) {
+            printf("$$ 3230shell ## ");
+        }
+        print_prompt = true;
+    
+        print_background_info = true;
         // read input if not receive sigint
         char* input = read_input();
+        
+        // char *input = malloc(MAX_CHAR * sizeof(char));
+        // fflush(stdout);
+        // fflush(stdin);
+        // fgets(input, MAX_CHAR, stdin);
+        // input[strlen(input) - 1] = '\0';
+        // printf("%s\n", input);
 
         // parse the instruction
         // const char *instr[MAX_STRING];
@@ -51,6 +68,5 @@ int main(int argc, char *argv[]) {
         // free the memory
         free(input);
         free(instr);
-        
     }
 }
