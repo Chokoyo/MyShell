@@ -42,10 +42,10 @@ void sigquit_handler(int sig) {
 //     #define SIGUSR1_RECEIVED 1
 // }
 
-void sigchld_handler(int sig) {
-    // print which signal terminate the child process
-    signal(SIGCHLD, sigchld_handler);
-}
+// void sigchld_handler(int sig) {
+//     // print which signal terminate the child process
+//     signal(SIGCHLD, sigchld_handler);
+// }
 
 void sigint_main_handler(int sig) {
     printf("\n");

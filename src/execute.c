@@ -16,6 +16,7 @@
 # define MAX_CHAR 1024
 
 int sigusr1_received = 0;
+char *background_info = NULL;
 
 void sigusr1_handler(int sig) {
     if (sig == SIGUSR1) {
@@ -23,9 +24,38 @@ void sigusr1_handler(int sig) {
     }
 }
 
+void sigchld_handler(int sig) {
+    // store the background process info
+    if (sig == SIGCHLD) {
+        int status;
+        pid_t pid = waitpid(-1, &status, WNOHANG);
+        if (pid > 0) {
+            if (WIFEXITED(status)) {
+                char *info = malloc(MAX_CHAR);
+                sprintf(info, "[%d] Done\n", pid);
+                strcat(background_info, info);
+            } else if (WIFSIGNALED(status)) {
+                char *info = malloc(MAX_CHAR);
+                sprintf(info, "[%d] Terminated\n", pid);
+                strcat(background_info, info);
+            }
+        }
+    }
+    signal(SIGCHLD, sigchld_handler);
+}
+
 void execute(char** args) {
     // check if the instruction is empty
+    if (background_info == NULL) {
+        background_info = malloc(MAX_CHAR);
+        strcpy(background_info, "");
+    }
+
     if (args[0] == NULL) {
+        if (strcmp(background_info, "") != 0) {
+            printf("%s", background_info);
+            strcpy(background_info, "");
+        }
         return;
     }
 
@@ -64,6 +94,10 @@ void execute(char** args) {
     }
     
     // execute the commands
+    if (background_mode == 1) {
+        signal(SIGCHLD, sigchld_handler);
+    }
+
     int fds[num_cmd - 1][2];
     char* timex_info = malloc(MAX_CHAR * sizeof(char));
     for (int i = 0; i < num_cmd; i++) {
@@ -71,45 +105,83 @@ void execute(char** args) {
         pid_t pid = fork();
         if (pid == 0) {
             // child process
-            while (!sigusr1_received);
+
+            if (background_mode == 1) {
+                setpgid(0, 0);
+            }
+
+            // wait for the parent to send SIGUSR1
+            if (i == 0) {
+                while (!sigusr1_received);
+            }
+
             // if not the first command, redirect the input
             if (i != 0) {
                 dup2(fds[i-1][0], STDIN_FILENO);
             }
+
             // if not the last command, redirect the output
             if (i != num_cmd - 1) {
                 dup2(fds[i][1], STDOUT_FILENO);
             }
-            // close all pipes
+            
             close(fds[i-1][0]);
+            close(fds[i-1][1]);
             close(fds[i][1]);
+            close(fds[i][0]);
 
             // execute the command
             execvp(all_cmd[i][0], all_cmd[i]);
-
+            
             // error handling
-            print_error_message(args);
+            print_error_message(all_cmd[i]);
             exit(-1);
         } else {
             // parent process
-            kill(pid, SIGUSR1);
-            // wait for the child process to finish
-            if (timex_mode == 0) { 
-                // wait for all child processes to finish
-                waitpid(pid, NULL, 0);
-            } else {               
-                // timex mode
-                wait_store_rusage(pid, all_cmd[i], timex_info);
+            if (i==0) kill(pid, SIGUSR1);
+
+            // if not the first command, close the input
+            if (i != 0) {
+                close(fds[i-1][0]);
+                close(fds[i-1][1]);
+            }
+
+            // if not the last command, close the output
+            if (i != num_cmd - 1) {
+                close(fds[i][1]);
+            }
+
+            if (background_mode == 0){
+                // wait for the child process to finish
+                if (timex_mode == 0 && i == num_cmd - 1) { 
+                    // wait for all child processes to finish
+                    waitpid(pid, NULL, 0);
+
+                } else {               
+                    // timex mode
+                    wait_store_rusage(pid, all_cmd[i], timex_info);
+                }
             }
             // close the unused file descriptors
-            close(fds[i-1][0]);
-            close(fds[i][1]);
+            // close(fds[i][0]);
+            // close(fds[i][1]);
 
             // if last command, print the timex info
             if (i == num_cmd - 1 && timex_mode == 1) {
                 printf("%s", timex_info);
             }
+            
         }
+    }
+
+    for (int i = 0; i < num_cmd - 1; i++) {
+        close(fds[i][0]);
+        close(fds[i][1]);
+    }
+
+    if (strcmp(background_info, "") != 0) {
+        printf("%s", background_info);
+        strcpy(background_info, "");
     }
 }
 
@@ -152,31 +224,35 @@ void exit_on_command(char** args) {
 }
 
 int is_background_command(char** args, int timex_mode) {
-    int i = get_args_length(args) - 1;
+    int i = 0;
     int j = 0;
-    while (args[i][j] != '\0') j++;
-    j = j - 1;
-    int m = 0;
-    int n = 0;
-    while (args[m] != NULL) {
-        while (args[m][n] != '\0') {
-            if (args[m][n] == '&' && (m != i || n != j)) {
-                print_message(args, "'&' should not appear in the middle of the command line");
-                return -1;
+    int flag = 0;
+    for (i = 0; args[i] != NULL; i++) {
+        for (j = 0; args[i][j] != '\0'; j++) {
+            if (args[i][j] == '&') {
+                flag = 1;
+                break;
             }
-            n++;
         }
-        m++;
+        if (flag == 1) {
+            break;
+        }
+    }
+    
+    if (args[i] != NULL) {
+        if (args[i][j + 1] != '\0' || args[i + 1] != NULL) {
+            print_message(args, "'&' should not appear in the middle of the command line");
+            return -1;
+        }
     }
 
-    // find the last char args[i - 1][j - 1]
-    // while (args[i] != NULL) i++;
-    // while (args[i - 1][j] != '\0') j++;
+    while (args[i] != NULL) i++;
+    while (args[i - 1][j] != '\0') j++;
     
-    if (args[i][j] == '&') {
-        args[i][j] = '\0';
-        if (args[i][0] == '\0') {
-            args[i] = NULL;
+    if (args[i - 1][j - 1] == '&') {
+        args[i - 1][j - 1] = '\0';
+        if (args[i - 1][0] == '\0') {
+            args[i - 1] = NULL;
         }
         // check if have other "&" in the command
         if (timex_mode == 1) {
@@ -208,7 +284,7 @@ int check_empty_command(char*** all_cmd, int num_cmd) {
     for (int i = 0; i < num_cmd; i++) {
         if (all_cmd[i][0] == NULL) {
             if (i == 0 || i == num_cmd - 1) {
-                print_message(all_cmd[i], "Should not have the | sign as the first or last character");
+                print_message(all_cmd[i], "should not have the | sign as the first or last character");
             } else {
                 print_message(all_cmd[i], "should not have two consecutive | without in-between command");
             }
