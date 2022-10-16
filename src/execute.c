@@ -15,21 +15,17 @@
 #include "parser.h"
 
 # define MAX_CHAR 1024
+# define MAX_BACKGROUND 20
 
 int sigusr1_received = 0;
 char *background_info = NULL;
+bool wait_flag = false;
 extern SLList background_list;
 extern bool print_background_info;
 extern bool print_prompt;
 // extern char ***all_cmd;
 
-
-struct back_instr {
-    pid_t pid;
-    char *cmd_name;
-    bool is_background;
-    struct back_instr *next;
-};
+struct rusage usage;
 
 void sigusr1_handler(int sig) {
     if (sig == SIGUSR1) {
@@ -41,7 +37,8 @@ void sigchld_handler(int sig) {
     // store the background process info
     if (sig == SIGCHLD) {
         int status;
-        pid_t pid = waitpid(-1, &status, WNOHANG);
+        // pid_t pid = waitpid(-1, &status, WNOHANG);
+        pid_t pid = wait4(-1, &status, WNOHANG, &usage);
         int index = findNode(&background_list, (int) pid);
         if (pid > 0 &&  index!= -1) {
             char *cmd_name = (getNode(&background_list, index))->command;
@@ -55,12 +52,13 @@ void sigchld_handler(int sig) {
                 sprintf(info, "[%d] %s Terminated\n", pid, get_cmd_name(cmd_name));
                 strcat(background_info, info);
             }
+            removeNode(&background_list, pid);
+            print_background_info = false;
+            wait_flag = true;
         }
-        removeNode(&background_list, pid);
-        print_background_info = false;
         print_prompt = false;
-        
     }
+
     signal(SIGCHLD, sigchld_handler);
 }
 
@@ -115,35 +113,37 @@ void execute(char** args) {
         return;
     }
     
-    // execute the commands
-    if (background_mode == 1) {
-        signal(SIGCHLD, sigchld_handler);
-    }
-    // signal(SIGCHLD, sigchld_handler);
+    // Signal Init
+    signal(SIGCHLD, sigchld_handler);
 
+    // Create Variables for Execution
     int fds[num_cmd - 1][2];
     char* timex_info = malloc(MAX_CHAR * sizeof(char));
+    strcpy(timex_info, "");
+    Job *jobs[MAX_BACKGROUND]; // store all background jobs in the pipeline for one instruction
+
+    // Start Execution
     for (int i = 0; i < num_cmd; i++) {
         pipe(fds[i]);
         pid_t pid = fork();
         if (pid == 0) {
-            // child process
+            // Child process
 
             if (background_mode == 1) {
                 setpgid(0, 0);
             }
 
-            // wait for the parent to send SIGUSR1
+            // Wait for the parent to send SIGUSR1
             if (i == 0) {
                 while (!sigusr1_received);
             }
 
-            // if not the first command, redirect the input
+            // If not the first command, redirect the input
             if (i != 0) {
                 dup2(fds[i-1][0], STDIN_FILENO);
             }
 
-            // if not the last command, redirect the output
+            // If not the last command, redirect the output
             if (i != num_cmd - 1) {
                 dup2(fds[i][1], STDOUT_FILENO);
             }
@@ -153,17 +153,36 @@ void execute(char** args) {
             close(fds[i][1]);
             close(fds[i][0]);
 
-            // execute the command
+            // Execute the command
             execvp(all_cmd[i][0], all_cmd[i]);
             
-            // error handling
+            // Error handling
             print_error_message(all_cmd[i]);
             exit(-1);
         } else {
-
-            // parent process
+            // Parent process
             if (i==0) kill(pid, SIGUSR1);
 
+            if (background_mode == 0){
+                // Wait for the child process to finish
+                if (timex_mode == 0 && i == num_cmd - 1) { 
+                    // wait for all child processes to finish
+                    waitpid(pid, NULL, 0);
+                } else if(timex_mode == 1) {               
+                    // timex mode
+
+                    wait_store_rusage(pid, all_cmd[i], timex_info);
+                }
+            
+            } else {
+                // Record the background process info
+                jobs[i] = malloc(sizeof(Job)); //todo: support pipe
+                jobs[i]->pid = pid;
+                jobs[i]->command = malloc(MAX_CHAR);
+                strcpy(jobs[i]->command, all_cmd[i][0]);
+                insertNode(&background_list, jobs[i]);
+                waitpid(pid, NULL, WNOHANG);
+            }
             // if not the first command, close the input
             if (i != 0) {
                 close(fds[i-1][0]);
@@ -175,53 +194,34 @@ void execute(char** args) {
                 close(fds[i][1]);
             }
 
-            if (background_mode == 0){
-                // wait for the child process to finish
-                if (timex_mode == 0 && i == num_cmd - 1) { 
-                    // wait for all child processes to finish
-                    waitpid(pid, NULL, 0);
-
-                } else {               
-                    // timex mode
-                    wait_store_rusage(pid, all_cmd[i], timex_info);
-                }
-            } else {
-                for (int i = 0; i < num_cmd; i++) {
-                    Job *job = malloc(sizeof(Job)); //todo: support pipe
-                    job->pid = pid;
-                    job->command = malloc(MAX_CHAR);
-                    strcpy(job->command, all_cmd[i][0]);
-                    // printf("pid: %d\n", pid);
-                    // printf("cmd: %s\n", job->command);
-                    insertNode(&background_list, job);
-                }  
-            }
-            // close the unused file descriptors
-            // close(fds[i][0]);
-            // close(fds[i][1]);
-
-            
-
-            // if last command, print the timex info
-            if (i == num_cmd - 1 && timex_mode == 1) {
-                printf("%s", timex_info);
-            }
-            
         }
     }
+    // Execution complete
 
+    // Close the unused file descriptors
     for (int i = 0; i < num_cmd - 1; i++) {
         close(fds[i][0]);
         close(fds[i][1]);
+    }
+
+    if (wait_flag) {
+        wait_flag = false;
+        wait(NULL);
     }
 
     if (background_mode == 0) {
         print_prompt = true;
     }
 
+    // Print timex info
+    if (timex_mode == 1) {
+        printf("%s", timex_info);
+        strcpy(timex_info, "");
+    }
+
+    // Print background info
     if (strcmp(background_info, "") != 0) {
-        wait(NULL);
-        printf("test msg: bg info at end\n");
+
         printf("%s", background_info);
         strcpy(background_info, "");
     }
@@ -345,27 +345,25 @@ void wait_print_rusage(pid_t pid, char** args) {
     struct rusage usage;
     wait4(pid, &status, 0, &usage);
     printf("\n");
-    printf("(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", pid, 
-                                                                        args[0], 
-                                                                        usage.ru_utime.tv_sec, 
-                                                                        usage.ru_utime.tv_usec/1000, 
-                                                                        usage.ru_stime.tv_sec, 
-                                                                        usage.ru_stime.tv_usec/1000);
+
 }
 
 void wait_store_rusage(pid_t pid, char** args, char* timex_info) {
     char* string = malloc(MAX_CHAR * sizeof(char));
     int status = 0;
-    struct rusage usage;
+    // struct rusage usage;
     // reset usage
     memset(&usage, 0, sizeof(usage));
+    // waitpid(pid, &status, 0);
     wait4(pid, &status, 0, &usage);
+
     sprintf(string, "(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", pid, 
                                                                         get_cmd_name(args[0]), 
                                                                         usage.ru_utime.tv_sec, 
-                                                                        usage.ru_utime.tv_usec/1000, 
-                                                                        usage.ru_stime.tv_sec, 
+                                                                        usage.ru_utime.tv_usec/1000,
+                                                                        usage.ru_stime.tv_sec,
                                                                         usage.ru_stime.tv_usec/1000);
+                                                                        
     strcat(timex_info, string);
     free(string);
 }
@@ -375,7 +373,7 @@ void print_error_message(char** args) {
         return;
     }
     char* err_msg = malloc(1024 * sizeof(char));
-    sprintf(err_msg, "3230shell: '%s'", get_cmd_name(args[0]));
+    sprintf(err_msg, "3230shell: '%s'", args[0]);
     perror(err_msg);
 }
 

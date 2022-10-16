@@ -112,7 +112,13 @@ char* read_input() {
     char c;
     int i = 0;
     while ((c = getchar()) != EOF && c != '\n' && (c >= 0 && c < 128)) {
-        input[i++] = c;
+        if (c == '|' || c == '&') {
+            input[i++] = ' ';
+            input[i++] = c;
+            input[i++] = ' ';
+        } else {
+            input[i++] = c;
+        }
         // printf("%c", c);
     }
     // printf("\n");
