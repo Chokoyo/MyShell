@@ -1,3 +1,7 @@
+// Student name and No.: Gu Zhuangcheng, 3035827110
+// Development platform: c3230-m1-ubuntu docker image
+// Remark – all requirements are implemented, including bonus
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,7 +55,7 @@ void sigquit_handler(int sig) {
 
 void sigint_main_handler(int sig) {
     printf("\n");
-    longjmp(jmpbuf, 1);
+    // longjmp(jmpbuf, 1);
     signal(SIGINT, sigint_handler);
     fflush(stdin);
 }

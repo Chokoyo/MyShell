@@ -1,6 +1,6 @@
 // Student name and No.: Gu Zhuangcheng, 3035827110
 // Development platform: c3230-m1-ubuntu docker image
-// Remark – describe how much you have completed; whether you have implemented the bonus part.
+// Remark – all requirements are implemented, including bonus
 
 #include <unistd.h>
 #include <stdio.h>
@@ -21,55 +21,39 @@
 #define MAX_STRING 30
 #define CONTINUE 0
 
+// global variables
 jmp_buf jmpbuf;
 bool print_background_info;
 bool print_prompt;
 SLList background_list;
-// char ***all_cmd;
 
+// main function
 int main(int argc, char *argv[]) {
     int i = 0;
     print_prompt = true;
     createSLList(&background_list, (int) sizeof(Job));
+    
     while(1) {
-        
-        // print num of iteration
-        // printf("this is the %d\n> ", i);
-
         setjmp(jmpbuf);
         sigint_main_init(SIGINT);
-        // print prompt
+
+        // Print prompt
         if (print_prompt) {
             printf("$$ 3230shell ## ");
         }
         print_prompt = true;
-    
         print_background_info = true;
-        // read input if not receive sigint
+        
+        // Read input
         char* input = read_input();
         
-        // char *input = malloc(MAX_CHAR * sizeof(char));
-        // fflush(stdout);
-        // fflush(stdin);
-        // fgets(input, MAX_CHAR, stdin);
-        // input[strlen(input) - 1] = '\0';
-        // printf("%s\n", input);
-
-        // parse the instruction
-        // const char *instr[MAX_STRING];
-        // char *ptr = strtok(input, " ");
-        // int i = 0;
-        // while(ptr != NULL) {
-        //     instr[i++] = ptr;
-        //     ptr = strtok(NULL, " ");
-        // }
-        // instr[i] = NULL;
+        // Parse instruction
         char** instr = parse(input);
 
-        // execute the instruction
+        // Execute instruction
         execute(instr);
 
-        // free the memory
+        // Free the memory
         free(input);
         free(instr);
     }

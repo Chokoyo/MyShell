@@ -1,6 +1,10 @@
+// Student name and No.: Gu Zhuangcheng, 3035827110
+// Development platform: c3230-m1-ubuntu docker image
+// Remark – all requirements are implemented, including bonus
+
 #define MAX_CHAR 1024
 #define MAX_STRING 30
-#define MAX_CMD 5
+#define MAX_CMD 6
 
 #include <string.h>
 #include <stdlib.h>
@@ -16,10 +20,7 @@ char **parse(char *input)
         empty[0] = NULL;
         return empty;
     }
-    // check recieve sigint
-    // char** all_tokens = malloc(all_tokens_buffer * sizeof(char*));
-    // remove new line character
-    // input[strlen(input) - 1] = '\0';
+
     char **instr = malloc(MAX_STRING * sizeof(char*));
     char *ptr = strtok(input, " ");
     int i = 0;
@@ -29,32 +30,8 @@ char **parse(char *input)
         ptr = strtok(NULL, " ");
     }
     instr[i] = NULL;
-
-    // for (int j = 0; j < i; j++)
-    // {
-    //     printf("%s\n", instr[j]);
-    // }
     return instr;
 }
-
-// char ***parse_command(char *instr, char delimiter)
-// {
-//     char ***all_cmd = malloc(MAX_CMD * sizeof(char**));
-//     int len = strlen(instr);
-//     int index = 0;
-    
-//     char **curr_cmd = malloc(MAX_STRING * sizeof(char*));
-//     for (int i = 0; i < len; i++)
-//     {
-//         curr_cmd[i] = malloc(MAX_CHAR * sizeof(char));
-
-//         if (strlen(instr[i]) == 1 && instr[0] == delimiter)
-//         {
-            
-//         }
-//     }
-// }
-
 
 // parse the instruction into multiple commands if there is a pipe
 char ***parse_command(char **instr, char delimiter) {
@@ -88,6 +65,7 @@ int get_args_length(char** args) {
 
 char* get_cmd_name(char* args) {
     char* cmd_name = malloc(MAX_CHAR * sizeof(char));
+    memset(cmd_name, 0, MAX_CHAR);
     int len = 0;
     // find position of last slash
     while (args[len] != '\0') {

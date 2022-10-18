@@ -1,3 +1,9 @@
+// Student name and No.: Gu Zhuangcheng, 3035827110
+// Development platform: c3230-m1-ubuntu docker image
+// Remark – all requirements are implemented, including bonus
+
+// The implementation of the data structure refers to my previous datasturcture coursework.
+
 #include "sllist.h"
 #include <unistd.h>
 #include <stdlib.h>
@@ -15,6 +21,7 @@ void deleteSLList(SLList *list) {
     Job *curr = list->sentinel->next;
     while (curr != list->sentinel) {
         Job *next = curr->next;
+        free(curr->command);
         free(curr);
         curr = next;
     }
@@ -36,6 +43,7 @@ void removeNode(SLList *list, int pid){
     while (curr->next != list->sentinel) {
         if (curr->next->pid == pid) {
             Job *next = curr->next->next;
+            free(curr->next->command);
             free(curr->next);
             curr->next = next;
             list->size--;
