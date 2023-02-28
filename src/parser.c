@@ -1,11 +1,17 @@
+// Student name and No.: Gu Zhuangcheng, 3035827110
+// Development platform: c3230-m1-ubuntu docker image
+// Remark – all requirements are implemented, including bonus
+
 #define MAX_CHAR 1024
 #define MAX_STRING 30
-#define MAX_CMD 5
+#define MAX_CMD 6
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "parser.h"
+
 
 char **parse(char *input)
 {
@@ -16,10 +22,7 @@ char **parse(char *input)
         empty[0] = NULL;
         return empty;
     }
-    // check recieve sigint
-    // char** all_tokens = malloc(all_tokens_buffer * sizeof(char*));
-    // remove new line character
-    // input[strlen(input) - 1] = '\0';
+
     char **instr = malloc(MAX_STRING * sizeof(char*));
     char *ptr = strtok(input, " ");
     int i = 0;
@@ -29,32 +32,8 @@ char **parse(char *input)
         ptr = strtok(NULL, " ");
     }
     instr[i] = NULL;
-
-    // for (int j = 0; j < i; j++)
-    // {
-    //     printf("%s\n", instr[j]);
-    // }
     return instr;
 }
-
-// char ***parse_command(char *instr, char delimiter)
-// {
-//     char ***all_cmd = malloc(MAX_CMD * sizeof(char**));
-//     int len = strlen(instr);
-//     int index = 0;
-    
-//     char **curr_cmd = malloc(MAX_STRING * sizeof(char*));
-//     for (int i = 0; i < len; i++)
-//     {
-//         curr_cmd[i] = malloc(MAX_CHAR * sizeof(char));
-
-//         if (strlen(instr[i]) == 1 && instr[0] == delimiter)
-//         {
-            
-//         }
-//     }
-// }
-
 
 // parse the instruction into multiple commands if there is a pipe
 char ***parse_command(char **instr, char delimiter) {
@@ -86,16 +65,45 @@ int get_args_length(char** args) {
     return i;
 }
 
+char* get_cmd_name(char* args) {
+    char* cmd_name = malloc(MAX_CHAR * sizeof(char));
+    memset(cmd_name, 0, MAX_CHAR);
+    int len = 0;
+    // find position of last slash
+    while (args[len] != '\0') {
+        len++;
+    }
+    int i = len - 1;
+    while (args[i] != '/') {
+        if (i == 0) {
+            return args;
+        }
+        i--;
+    }
+    for (int j = i + 1; j < len; j++) {
+        cmd_name[j - i - 1] = args[j];
+    }
+    return cmd_name;
+}
+
 char* read_input() {
     char *input = malloc(MAX_CHAR * sizeof(char));
     memset(input, 0, MAX_CHAR);
     char c;
     int i = 0;
-    while ((c = getchar()) != EOF && c != '\n' && (c >= 0 && c < 128)) {
-        input[i++] = c;
-        // printf("%c", c);
+    while ((c = getchar()) != EOF) {
+        if (c == '\n' || c < 0 || c >= 128) {
+            break;
+        }
+        if (c == '|' || c == '&') {
+            input[i++] = ' ';
+            input[i++] = c;
+            input[i++] = ' ';
+        } else {
+            input[i++] = c;
+        }
     }
-    // printf("\n");
+
     input[i] = '\0';
     return input;
 }

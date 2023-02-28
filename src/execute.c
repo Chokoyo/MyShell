@@ -1,3 +1,7 @@
+// Student name and No.: Gu Zhuangcheng, 3035827110
+// Development platform: c3230-m1-ubuntu docker image
+// Remark – all requirements are implemented, including bonus
+
 #include <stdio.h>
 #include <signal.h>
 #include <unistd.h>
@@ -7,145 +11,238 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
+#include <setjmp.h>
+#include <string.h>
 
-
+#include "sllist.h"
 #include "execute.h"
 #include "sighandler.h"
 #include "parser.h"
 
 # define MAX_CHAR 1024
+# define MAX_BACKGROUND 20
 
 int sigusr1_received = 0;
+int term_sig = 0;
+char *background_info = NULL;
+bool wait_flag = false;
+extern SLList background_list;
+extern bool print_background_info;
+extern bool print_prompt;
 
-void sigusr1_handler(int sig) {
-    if (sig == SIGUSR1) {
-        sigusr1_received = 1;
-    }
-}
+struct rusage usage;
 
 void execute(char** args) {
-    // check if the instruction is empty
+    // Initiallize variable and sighandler
+    int background_mode = 0;
+    int timex_mode = 0;
+    term_sig = 0;
+    sigusr1_received = 0;
+    sighandler_init();
+
+    // Initialize background information
+    if (background_info == NULL) {
+        background_info = malloc(MAX_CHAR);
+        strcpy(background_info, "");
+    }
+
+    // Return if the instruction is empty
     if (args[0] == NULL) {
+        if (strcmp(background_info, "") != 0 && print_background_info) {
+            printf("%s", background_info);
+            strcpy(background_info, "");
+        }  
+        wait_flag = false;
         return;
     }
 
-    sigusr1_received = 0;
-    signal(SIGUSR1, sigusr1_handler);
-    sighandler_init();
-
-    // handle all built-in commands
+    // Handle all built-in commands
     exit_on_command(args);
-    int timex_mode = is_timex_command(args); // 0 if not timex, 1 if timex
-    int background_mode = is_background_command(args, timex_mode); // 0 if not background, 1 if background
+    timex_mode = is_timex_command(args); // 0 if not timex, 1 if timex
+    background_mode = is_background_command(args, timex_mode); // 0 if not background, 1 if background
     if (background_mode == -1) {
         // error condition
         return;
     }
-
     // parse the instruction to an array of commands if involve pipe
-    char ***all_cmd = parse_command(args, '|');
+    char*** all_cmd = parse_command(args, '|');
     int num_cmd = 0;
     while (all_cmd[num_cmd] != NULL) {
         num_cmd++;
     }
     
-    // print all commands
-    for (int i = 0; i < num_cmd; i++) {
-        printf("command %d: ", i);
-        for (int j = 0; all_cmd[i][j] != NULL; j++) {
-            printf("%s ", all_cmd[i][j]);
-        }
-        printf("\n");
-    }
+    // Debug info
+    // printf("background_mode: %d, timex_mode: %d, num_cmd: %d\n", background_mode, timex_mode, num_cmd);
+    // for (int i = 0; i < num_cmd; i++) {
+    //     printf("command %d: ", i);
+    //     for (int j = 0; all_cmd[i][j] != NULL; j++) {
+    //         printf("%s ", all_cmd[i][j]);
+    //     }
+    //     printf("\n");
+    // }
 
-    // check whether has empty command
+    // Check whether has empty command and report wrong usage of |
     if (check_empty_command(all_cmd, num_cmd) == 1) {
         return;
     }
-    
-    // execute the commands
-    int fd[2];
-    int fd_last_out = 0;
+
+    // Create Variables for Execution
+    int fds[num_cmd - 1][2];
     char* timex_info = malloc(MAX_CHAR * sizeof(char));
+    strcpy(timex_info, "");
+    Job *jobs[MAX_BACKGROUND]; // store all background jobs in the pipeline for one instruction
+
+    // Start Execution
     for (int i = 0; i < num_cmd; i++) {
-        pipe(fd);
+        pipe(fds[i]);
         pid_t pid = fork();
         if (pid == 0) {
-            // child process
-            while (!sigusr1_received);
-            // if not the first command, redirect the input
+            // Child process
+            if (background_mode == 1) {
+                setpgid(0, 0);
+            }
+            // Wait for the parent to send SIGUSR1
+            if (i == 0) {
+                while (!sigusr1_received);
+            }
+            // If not the first command, redirect the input
             if (i != 0) {
-                dup2(fd_last_out, STDIN_FILENO);
+                dup2(fds[i-1][0], STDIN_FILENO);
             }
-            // if not the last command, redirect the output
+            // If not the last command, redirect the output
             if (i != num_cmd - 1) {
-                dup2(fd[1], STDOUT_FILENO);
+                dup2(fds[i][1], STDOUT_FILENO);
             }
-            // close all pipes
-            close(fd[0]);
-            close(fd[1]);
+            close(fds[i-1][0]);
+            close(fds[i-1][1]);
+            close(fds[i][1]);
+            close(fds[i][0]);
 
-            // execute the command
+            // Execute the command
             execvp(all_cmd[i][0], all_cmd[i]);
-
-            // error handling
-            print_error_message(args);
+            
+            // Error handling
+            print_error_message(all_cmd[i]);
             exit(-1);
         } else {
-            // parent process
-            kill(pid, SIGUSR1);
-            // wait for the child process to finish
-            if (timex_mode == 0) { 
-                // not timex mode
-                waitpid(pid, NULL, 0);
-            } else {               
-                // timex mode
-                wait_store_rusage(pid, all_cmd[i], timex_info);
-            }
-            // close the unused file descriptors
-            close(fd[1]);
-            // save the input for the next command
-            fd_last_out = fd[0];
+            // Parent process
+            if (i==0) kill(pid, SIGUSR1);
 
-            // if last command, print the timex info
-            if (i == num_cmd - 1 && timex_mode == 1) {
-                printf("%s", timex_info);
+            if (background_mode == 0){
+                int status;
+                pid_t pid_wait;
+                // Wait for the child process to finish
+                if (timex_mode == 0) { 
+                    // wait for all child processes to finish
+                    pid_wait = waitpid(pid, &status, 0);
+                    while (pid_wait == -1) {
+                        pid_wait = waitpid(pid, &status, 0);
+                    }
+                } else if(timex_mode == 1) {               
+                    // timex mode
+                    status = wait_store_rusage(pid, all_cmd[i], timex_info);
+                }
+
+                // Print if recieve signal
+                switch (WTERMSIG(status))
+                {
+                case SIGINT:
+                    printf("Interrupt\n");
+                    break;
+
+                case SIGKILL:
+                    printf("Killed\n");
+                    break;
+
+                case SIGQUIT:
+                    printf("Quited\n");
+                    break;
+
+                case SIGTERM:
+                    printf("Terminated\n");
+                    break;
+                
+                case SIGHUP:
+                    printf("Hangup\n");
+                    break;
+                
+                default:
+                    break;
+                }
+
+
+            } else {
+                // Record the background process info
+                jobs[i] = malloc(sizeof(Job));
+                jobs[i]->pid = pid;
+                jobs[i]->command = malloc(MAX_CHAR);
+                memset(jobs[i]->command, 0, MAX_CHAR);
+                strcpy(jobs[i]->command, all_cmd[i][0]);
+                insertNode(&background_list, jobs[i]);
+                waitpid(pid, NULL, WNOHANG);
             }
+            // if not the first command, close the input
+            if (i != 0) {
+                close(fds[i-1][0]);
+            }
+
+            // if not the last command, close the output
+            if (i != num_cmd - 1) {
+                close(fds[i][1]);
+            }
+
         }
     }
-}
+    // Execution complete
 
-void execute_single(char** args, int timex_mode) {
-    pid_t pid = fork();
-    if (pid == 0) {
-        // child process
-        // printf("child process\n");
-
-        // pause until SIGUSR1 signal from parent
-        while (!sigusr1_received);
-        execvp(args[0], args);
-
-        // error handling
-        print_error_message(args);
-        exit(-1);
-    } else {
-        // parent process
-
-        // send SIGUSR1 signal to child
-        kill(pid, SIGUSR1);
-        // while (!SIGUSR1_RECEIVED);
-        // if in timex mode, use wait4() to get rusage
-        if (timex_mode == 0) { // not timex mode
-            waitpid(pid, NULL, 0);
-        } else {               // timex mode
-            wait_print_rusage(pid, args);
-        }
-        // printf("parent process\n");
+    // Close the unused file descriptors
+    for (int i = 0; i < num_cmd - 1; i++) {
+        close(fds[i][0]);
+        close(fds[i][1]);
     }
+
+    if (wait_flag) {
+        wait_flag = false;
+        wait(NULL);
+    }
+
+    // Print timex info
+    if (timex_mode == 1) {
+        printf("%s", timex_info);
+        memset(timex_info, 0, MAX_CHAR);
+    }
+
+    // Print background info
+    if (strcmp(background_info, "") != 0) {
+
+        printf("%s", background_info);
+        strcpy(background_info, "");
+    }
+
+    // Free memory
+    free(timex_info);
+
+    if (background_mode == 0 && term_sig == 0) {
+        print_prompt = true;
+    }
+
 }
 
 void exit_on_command(char** args) {
+    if (args[0] == NULL) {
+        return;
+    }
     if (strcmp(args[0], "exit") == 0 && args[1] == NULL) {
+        // Terminate all background processes
+        Job *job = background_list.sentinel->next;
+        while (job != background_list.sentinel) {
+            kill(job->pid, SIGKILL);
+            job = job->next;
+        }
+        // Free memory
+        deleteSLList(&background_list);
+        free(args);
+        free(background_info);
         print_message(args, "Terminated");
         exit(0);
     } else if (strcmp(args[0], "exit") == 0 && args[1] != NULL) {
@@ -156,8 +253,26 @@ void exit_on_command(char** args) {
 int is_background_command(char** args, int timex_mode) {
     int i = 0;
     int j = 0;
+    int flag = 0;
+    for (i = 0; args[i] != NULL; i++) {
+        for (j = 0; args[i][j] != '\0'; j++) {
+            if (args[i][j] == '&') {
+                flag = 1;
+                break;
+            }
+        }
+        if (flag == 1) {
+            break;
+        }
+    }
+    
+    if (args[i] != NULL) {
+        if (args[i][j + 1] != '\0' || args[i + 1] != NULL) {
+            print_message(args, "'&' should not appear in the middle of the command line");
+            return -1;
+        }
+    }
 
-    // find the last char args[i - 1][j - 1]
     while (args[i] != NULL) i++;
     while (args[i - 1][j] != '\0') j++;
     
@@ -166,12 +281,11 @@ int is_background_command(char** args, int timex_mode) {
         if (args[i - 1][0] == '\0') {
             args[i - 1] = NULL;
         }
+        // Check if have other "&" in the command
         if (timex_mode == 1) {
             print_message(args, "\"timeX\" cannot be run in background mode");
-            return -1;
+            return -1; // error
         }
-
-        // print_message(args, "Background Mode Activated");
         return 1;
     }
     return 0;
@@ -195,7 +309,7 @@ int check_empty_command(char*** all_cmd, int num_cmd) {
     for (int i = 0; i < num_cmd; i++) {
         if (all_cmd[i][0] == NULL) {
             if (i == 0 || i == num_cmd - 1) {
-                print_message(all_cmd[i], "Should not have the | sign as the first or last character");
+                print_message(all_cmd[i], "should not have the | sign as the first or last character");
             } else {
                 print_message(all_cmd[i], "should not have two consecutive | without in-between command");
             }
@@ -205,43 +319,39 @@ int check_empty_command(char*** all_cmd, int num_cmd) {
     return 0;
 }
 
-void wait_print_rusage(pid_t pid, char** args) {
-    int status;
-    struct rusage usage;
-    wait4(pid, &status, 0, &usage);
-    printf("\n");
-    printf("(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", pid, 
-                                                                        args[0], 
-                                                                        usage.ru_utime.tv_sec, 
-                                                                        usage.ru_utime.tv_usec/1000, 
-                                                                        usage.ru_stime.tv_sec, 
-                                                                        usage.ru_stime.tv_usec/1000);
-}
 
-void wait_store_rusage(pid_t pid, char** args, char* timex_info) {
+int wait_store_rusage(pid_t pid, char** args, char* timex_info) {
     char* string = malloc(MAX_CHAR * sizeof(char));
     int status = 0;
-    struct rusage usage;
     // reset usage
     memset(&usage, 0, sizeof(usage));
-    wait4(pid, &status, 0, &usage);
-    sprintf(string, "(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", pid, 
-                                                                        args[0], 
-                                                                        usage.ru_utime.tv_sec, 
-                                                                        usage.ru_utime.tv_usec/1000, 
-                                                                        usage.ru_stime.tv_sec, 
-                                                                        usage.ru_stime.tv_usec/1000);
+    pid_t pid_wait = wait4(pid, &status, 0, &usage);
+    while(pid_wait == -1) {
+        pid_wait = wait4(pid, &status, 0, &usage);
+    }
+
+    sprintf(string, "(PID)%d  (CMD)%s    (user)%ld.%03ld s  (sys)%ld.%03ld s\n", 
+                                                                pid, 
+                                                                get_cmd_name(args[0]), 
+                                                                usage.ru_utime.tv_sec, 
+                                                                usage.ru_utime.tv_usec/1000,
+                                                                usage.ru_stime.tv_sec,
+                                                                usage.ru_stime.tv_usec/1000);
+                                                                        
     strcat(timex_info, string);
     free(string);
+    return status;
 }
 
 void print_error_message(char** args) {
-    if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "timeX") == 0) { // ommit built-in commands
+    // Ommit built-in commands
+    if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "timeX") == 0) { 
         return;
     }
     char* err_msg = malloc(1024 * sizeof(char));
     sprintf(err_msg, "3230shell: '%s'", args[0]);
     perror(err_msg);
+    free(err_msg);
 }
 
 void print_message(char** args, char* message) {
